@@ -5,7 +5,7 @@ from typing import List, Dict
 from ByteIO import ByteIO
 from OVL_COMPRESSED_DATA import OVLCompressedData
 from OVL_DATA import OVLType, OVLArchiveV2, OVLFileDescriptor, OVLDir, OVLArchive2, OVLOther, OVLPart, OVLUnk, OVLHeader
-from OVS_TEXTURES import OVSTextureArchive
+#from OVS_TEXTURES import OVSTextureArchive
 
 
 class OVL:
@@ -81,18 +81,15 @@ class OVL:
             self.archives2.append(ovl_archive2)
 
         for archive in self.archives:
-            try:
-                if archive.name == 'STATIC':
-                    archive.uncompressed_data = zlib.decompress(self.reader.read_bytes(archive.packed_size))
-                    self.static_archive = archive
-                else:
-                    self.reader.seek(archive.ovs_offset)
-                    archive.uncompressed_data = zlib.decompress(self.reader.read_bytes(archive.packed_size))
+            if archive.name == 'STATIC':
+                archive.uncompressed_data = zlib.decompress(self.reader.read_bytes(archive.packed_size))
+                self.static_archive = archive
+            else:
+                self.reader.seek(archive.ovs_offset)
+                archive.uncompressed_data = zlib.decompress(self.reader.read_bytes(archive.packed_size))
 
-                with open(r'test_data\{}-{}.decompressed'.format(self.path.stem, archive.name), 'wb') as fp:
-                    fp.write(self.static_archive.uncompressed_data)
-            except:
-                pass
+            # with open(r'test_data\{}-{}.decompressed'.format(self.path.stem, archive.name), 'wb') as fp:
+            #     fp.write(self.static_archive.uncompressed_data)
 
     def write(self, writer: ByteIO):
         self.header.write(writer)
@@ -128,7 +125,7 @@ class OVL:
         self.header.archive_names_length = writer.tell() - archive_name_table_start
         for ovl_archive in self.archives:
             ovl_archive.unpacked_size = len(ovl_archive.uncompressed_data)
-            ovl_archive.compressed_data = zlib.compress(ovl_archive.uncompressed_data)
+            ovl_archive.compressed_data = zlib.compress(ovl_archive.uncompressed_data, 1)
             ovl_archive.packed_size = len(ovl_archive.compressed_data)
             ovl_archive.write(writer)
         for ovl_dir in self.dirs:
@@ -159,15 +156,15 @@ class OVL:
 
 
 if __name__ == '__main__':
-    model = r'test_data\Tyrannosaurus.ovl'
+    model = r'test_data\loc.ovl'
     a = OVL(model)
     a.read()
     # a.read_uncompressed()
     compressed = OVLCompressedData(a, a.static_archive)
     compressed.read(ByteIO(byte_object=a.static_archive.uncompressed_data))
-    compressed.read_mesh()
-    b = OVSTextureArchive(compressed)
-    b.read()
+    # compressed.read_mesh()
+    # b = OVSTextureArchive(compressed)
+    # b.read()
     # out = ByteIO(path='test_data/compressed_repacked', mode='w')
     # compressed.write(out)
     # out.close()

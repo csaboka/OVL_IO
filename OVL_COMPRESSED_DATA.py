@@ -5,6 +5,14 @@ from ByteIO import ByteIO
 from OVL_DATA import OVLArchiveV2
 
 
+class LocalizationEntry:
+
+    def __init__(self):
+        self.name = "???"  # type: str
+        self.text = ""  # type: str
+        self.extra_int = None  # type: int
+
+
 class OVLCompressedData:
     def __init__(self, parent, archive: OVLArchiveV2):
         from OVLFile import OVL
@@ -230,6 +238,58 @@ class OVLCompressedData:
             writer.write_bytes(chunk)
         for embedded_file in self.embedded_files:
             writer.write_bytes(embedded_file)
+
+    def get_localization_data(self) -> List[LocalizationEntry]:
+        result = []
+        for chunk_id, chunk in enumerate(self.chunks):
+            text_assets_in_this_chunk = [x for x in self.ovs_assets if
+                                         x.chunk_id == chunk_id and x.type_hash == 193507397]
+            text_assets_in_this_chunk.sort(key=lambda asset: asset.offset)
+            chunkIO = ByteIO(byte_object=chunk)
+            for asset_id, asset in enumerate(text_assets_in_this_chunk):
+                localizationEntry = LocalizationEntry()
+                localizationEntry.name = asset.name
+                chunkIO.seek(asset.offset)
+                datalen = chunkIO.read_uint32()
+                localizationEntry.text = chunkIO.read_bytes(datalen).decode('UTF-8')
+                chunkIO.skip(1)     # skip terminating NUL byte
+                chunkIO.align(4)
+                if asset_id == len(text_assets_in_this_chunk)-1:
+                    next_offset = len(chunk)
+                else:
+                    next_offset = text_assets_in_this_chunk[asset_id + 1].offset
+                if chunkIO.tell() != next_offset:
+                    localizationEntry.extra_int = chunkIO.read_uint32()
+                assert chunkIO.tell() == next_offset
+                result.append(localizationEntry)
+        return result
+
+    def update_localization_data(self, localization_data: List[LocalizationEntry]):
+        localization_by_name = {localization_entry.name : localization_entry for localization_entry in localization_data}
+        for chunk_id, chunk in enumerate(self.chunks):
+            text_assets_in_this_chunk = [x for x in self.ovs_assets if
+                                         x.chunk_id == chunk_id and x.type_hash == 193507397]
+            if not text_assets_in_this_chunk:
+                continue
+            non_text_assets_in_this_chunk = [x for x in self.ovs_assets if
+                                         x.chunk_id == chunk_id and x.type_hash != 193507397]
+            # we can't safely repack a chunk if it has non-text entries, so fail in this case
+            assert not non_text_assets_in_this_chunk
+            text_assets_in_this_chunk.sort(key=lambda asset: asset.offset)
+            newchunkIO = ByteIO()
+            for asset in text_assets_in_this_chunk:
+                asset.offset = newchunkIO.tell()
+                localization = localization_by_name[asset.name]
+                bytes_to_write = localization.text.encode('UTF-8')
+                newchunkIO.write_uint32(len(bytes_to_write))
+                newchunkIO.write_bytes(bytes_to_write)
+                newchunkIO.write_uint8(0)   # terminating NUL byte
+                newchunkIO.align(4)
+                if localization.extra_int is not None:
+                    newchunkIO.write_uint32(localization.extra_int)
+            newchunkIO.seek(0)
+            self.chunks[chunk_id] = newchunkIO.read_bytes()
+
 
 
 class OVSTypeHeader:
